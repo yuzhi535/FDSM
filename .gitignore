@@ -1,0 +1,10 @@
+__pycache__/
+data/label_splits
+data/sk_feats
+data/text_feats
+results/
+*.zip
+datasets/
+skeleton_previews/
+skeleton_frames/
+skeleton_videos/
