@@ -1,4 +1,4 @@
-name: tdsm
+name: fdsm
 channels:
   - xformers
   - pytorch
@@ -153,4 +153,3 @@ dependencies:
       - transformers==4.44.2
       - tzdata==2024.2
       - zipp==3.20.1
-prefix: /home/viclab/anaconda3/envs/tdsm
