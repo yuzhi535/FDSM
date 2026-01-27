@@ -151,8 +151,8 @@ def get_parser():
     parser.add_argument(
         "--prediction-type",
         type=str,
-        default="eplison",
-        help="eplison or sample or v_prediction",
+        default="epsilon",
+        help="epsilon or sample or v_prediction",
     )
     parser.add_argument(
         "--d-weight", type=float, default=1.0, help="the weight of diffusion loss"
@@ -172,6 +172,15 @@ def get_parser():
     parser.add_argument(
         '--use-freq-loss', type=lambda x: x.lower() == 'true', default=True, help='whether to use frequency loss in training'
     )
+    
+    # LLM distillation
+    parser.add_argument(
+        '--use-distilled-gate', type=lambda x: x.lower() == 'true', default=False, help='whether to use distilled frequency classifier (frozen)'
+    )
+    parser.add_argument(
+        '--distilled-classifier-path', type=str, default=None, help='path to distilled frequency classifier checkpoint'
+    )
+    
     # denoising model
     parser.add_argument("--in-channels", type=int, default=256)
     parser.add_argument("--hidden-size", type=int, default=768)

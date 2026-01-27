@@ -59,10 +59,25 @@ class Trainer:
         use_freq_enhance = getattr(self.args, 'use_freq_enhance', True)
         self.dit = DiT(in_channels=self.args.in_channels, hidden_size=self.args.hidden_size, depth=self.args.depth, num_heads=self.args.num_heads, use_freq_enhance=use_freq_enhance, cond_size=1024)
         
-        # Kinematic Projection Head
-        # Assuming SD 2.1 text encoder (1024 dim)
+        # Kinematic Projection Head (for frequency gating)
         self.kinematic_head = KinematicProjectionHead(input_dim=1024, hidden_dim=256).to(self.accelerator.device)
         self.load_kinematic_head()
+        
+        # Check if using distilled weights
+        self.use_distilled_gate = getattr(self.args, 'use_distilled_gate', False)
+        if self.use_distilled_gate:
+            # Freeze the head (use distilled knowledge)
+            self.kinematic_head.eval()
+            for param in self.kinematic_head.parameters():
+                param.requires_grad = False
+            if self.accelerator.is_main_process:
+                print("Using frozen distilled kinematic head")
+        else:
+            # Train the head end-to-end
+            self.kinematic_head.train()
+            self.kinematic_head.requires_grad_(True)
+            if self.accelerator.is_main_process:
+                print("Using learnable kinematic head")
         
         self.unseen_num = self.args.unseen_label
         self.unseen_labels = np.load(self.args.unseen_label_path)
@@ -78,9 +93,13 @@ class Trainer:
         self.unseen_label_mapping = {label: idx for idx, label in enumerate(self.unseen_labels)}
 
         # Optimizer
-        # Add kinematic_head parameters to optimizer for end-to-end training
-        self.kinematic_head.requires_grad_(True)
-        params_to_opt = list(self.dit.parameters()) + list(self.kinematic_head.parameters())
+        if self.use_distilled_gate:
+            # Only optimize DiT parameters (kinematic_head is frozen)
+            params_to_opt = list(self.dit.parameters())
+        else:
+            # Optimize both DiT and kinematic_head parameters
+            params_to_opt = list(self.dit.parameters()) + list(self.kinematic_head.parameters())
+        
         self.optimizer = torch.optim.AdamW(params_to_opt, lr=self.args.learning_rate, weight_decay=self.args.weight_decay)
 
         # Scheduler
@@ -90,23 +109,46 @@ class Trainer:
             self.dit, self.optimizer, self.lr_scheduler, self.train_data_loader, self.val_data_loader, self.test_data_loader)
 
     def load_kinematic_head(self):
-        head_path = os.path.join(self.args.work_dir, 'kinematic_head.pth')
-        if os.path.exists(head_path):
+        # Check if loading distilled weights or checkpoint
+        distilled_path = getattr(self.args, 'distilled_classifier_path', None)
+        
+        if self.use_distilled_gate and distilled_path:
+            # Load distilled weights from Stage 1
             try:
-                state_dict = torch.load(head_path, map_location=self.accelerator.device)
-                self.kinematic_head.load_state_dict(state_dict)
+                checkpoint = torch.load(distilled_path, map_location=self.accelerator.device)
+                
+                # Extract head state dict
+                full_state_dict = checkpoint['model_state_dict']
+                head_state_dict = {
+                    k.replace('head.net.', ''): v 
+                    for k, v in full_state_dict.items() 
+                    if k.startswith('head.net.')
+                }
+                self.kinematic_head.net.load_state_dict(head_state_dict)
+                
                 if self.accelerator.is_main_process:
-                    print(f"Loaded Kinematic Projection Head from {head_path}")
+                    print(f"Loaded distilled kinematic head from {distilled_path}")
+                    print(f"  Epoch: {checkpoint['epoch']}, Val Loss: {checkpoint['val_loss']:.4f}, Val Acc: {checkpoint['val_acc']:.4f}")
             except Exception as e:
                 if self.accelerator.is_main_process:
-                    print(f"Failed to load Kinematic Projection Head: {e}")
+                    print(f"Failed to load distilled weights: {e}")
+                    # print("Using random initialization instead")
+                raise RuntimeError(f"Could not load distilled classifier from {distilled_path}. Check path or disable use_distilled_gate.")
         else:
-            if self.accelerator.is_main_process:
-                print(f"Kinematic Projection Head weights not found at {head_path}. Using random initialization (Training end-to-end).")
-        
-        # We want to train it end-to-end now, so enable grads and train mode
-        self.kinematic_head.train()
-        self.kinematic_head.requires_grad_(True)
+            # Try to load from checkpoint (for resuming training)
+            head_path = os.path.join(self.args.work_dir, 'kinematic_head.pth')
+            if os.path.exists(head_path):
+                try:
+                    state_dict = torch.load(head_path, map_location=self.accelerator.device)
+                    self.kinematic_head.load_state_dict(state_dict)
+                    if self.accelerator.is_main_process:
+                        print(f"Loaded kinematic head checkpoint from {head_path}")
+                except Exception as e:
+                    if self.accelerator.is_main_process:
+                        print(f"Failed to load checkpoint: {e}")
+            else:
+                if self.accelerator.is_main_process:
+                    print(f"No checkpoint found. Using random initialization")
 
     def load_checkpoint(self):
         noise_scheduler_config = DDPMScheduler.from_pretrained(self.args.pretrained_model_name_or_path, subfolder="scheduler").config
@@ -200,12 +242,13 @@ class Trainer:
                     text_embed = torch.cat((text_embed, text_embed_r), dim=0)
                     noisy_latents = self.noise_scheduler.add_noise(features, noise, timesteps)
                 
-                # Predict Kinematic Intensity (Gate)
-                # Input to head is the pooled embedding (last token, index -1)
+                # Compute Frequency Gate
+                # Input to gate provider is the pooled embedding (last token, index -1)
                 # text_embed shape: (2*B, 36, 1024)
-                gate = self.kinematic_head(text_embed[:, -1, :]) # (2*B, 1)
+                pooled_embed = text_embed[:, -1, :]  # (2*B, 1024)
+                gate = self.kinematic_head(pooled_embed)  # (2*B, 1)
                 
-                model_pred = self.dit(noisy_latents, timesteps, text_embed[:, -1, :], text_embed[:, :-1, :], gate=gate)
+                model_pred = self.dit(noisy_latents, timesteps, pooled_embed, text_embed[:, :-1, :], gate=gate)
 
                 if "sample" == self.args.prediction_type:
                     target = features
@@ -327,10 +370,11 @@ class Trainer:
                         # Use sparse embeddings for inference (standard ZSL)
                         text_embed = self.text_embed_sparse[labels_.long()].to(self.accelerator.device, dtype=self.weight_dtype)
                         
-                        # Predict Gate
-                        gate = self.kinematic_head(text_embed[:, -1, :])
+                        # Compute Gate
+                        pooled_embed = text_embed[:, -1, :]
+                        gate = self.kinematic_head(pooled_embed)
 
-                        noise_pred = self.dit(noisy_latents, t, text_embed[:, -1, :], text_embed[:, :-1, :], gate=gate)
+                        noise_pred = self.dit(noisy_latents, t, pooled_embed, text_embed[:, :-1, :], gate=gate)
                         if "sample" == self.args.prediction_type:
                             label_pred[:, idx] += F.mse_loss(noise_pred, features, reduce=False).mean(dim=(1, 2))
                         elif "epsilon" == self.args.prediction_type:

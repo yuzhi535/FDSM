@@ -51,7 +51,23 @@ data
 
 ## 🚀 Training
 
-To train FDSM on various benchmarks, run the following commands. The configuration files correspond to different dataset splits.
+### Stage 1: LLM Distillation
+
+```bash
+pip install openai
+export OPENAI_API_KEY="your-key"
+python distill_frequency_classifier.py --dataset ntu60 --openai_api_key $OPENAI_API_KEY
+```
+
+### Stage 2: Train FDSM
+
+Add to your config file (e.g., `config/fdsm_ntu60_unseen5.yaml`):
+```yaml
+use_distilled_gate: true
+distilled_classifier_path: ./work_dir/distill_ntu60/frequency_classifier_best.pth
+```
+
+Then train:
 
 ```bash
 # Train FDSM on SynSE benchmarks for the NTU-60 dataset (55/5 split)
