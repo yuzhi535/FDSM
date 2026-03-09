@@ -11,6 +11,14 @@ def dct(x, norm='ortho'):
     Discrete Cosine Transform, Type II (a.k.a. the DCT)
     Applied to the last dimension.
     """
+
+    if norm == 'ortho':
+        x_shape = x.shape
+        N = x_shape[-1]
+        dct_mat, _ = _get_dct_matrices(N, x.device, x.dtype)
+        x = x.contiguous().view(-1, N)
+        return (x @ dct_mat.t()).view(*x_shape)
+
     x_shape = x.shape
     N = x_shape[-1]
     x = x.contiguous().view(-1, N)
@@ -39,6 +47,14 @@ def idct(X, norm='ortho'):
     The Inverse Discrete Cosine Transform, Type II (a.k.a. the IDCT)
     Applied to the last dimension.
     """
+
+    if norm == 'ortho':
+        x_shape = X.shape
+        N = x_shape[-1]
+        _, idct_mat = _get_dct_matrices(N, X.device, X.dtype)
+        X = X.contiguous().view(-1, N)
+        return (X @ idct_mat.t()).view(*x_shape)
+
     x_shape = X.shape
     N = x_shape[-1]
 
