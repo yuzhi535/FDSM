@@ -124,7 +124,7 @@ class FrequencyEnhancement(nn.Module):
 
 
 class KinematicProjectionHead(nn.Module):
-    def __init__(self, input_dim=768, hidden_dim=256):
+    def __init__(self, input_dim=1024, hidden_dim=256):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
