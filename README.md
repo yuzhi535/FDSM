@@ -1,5 +1,7 @@
 # FDSM: Frequency-Aware Diffusion with Curriculum Semantic Guidance for Zero-Shot Skeleton Action Recognition
 
+> Accepted by *The Visual Computer*.
+
 This repository contains the official implementation of **FDSM** (Frequency-Aware Diffusion for Skeleton-Text Matching), as described in our paper "Frequency-Enhanced Diffusion Models: Curriculum-Guided Semantic Alignment for Zero-Shot Skeleton Action Recognition".
 
 ---
