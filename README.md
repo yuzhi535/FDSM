@@ -1,3 +1,5 @@
+
+
 # FDSM: Frequency-Aware Diffusion with Curriculum Semantic Guidance for Zero-Shot Skeleton Action Recognition
 
 > Accepted by *The Visual Computer*.
@@ -66,7 +68,7 @@ python distill_frequency_classifier.py --dataset ntu60 --openai_api_key $OPENAI_
 Add to your config file (e.g., `config/fdsm_ntu60_unseen5.yaml`):
 ```yaml
 use_distilled_gate: true
-distilled_classifier_path: ./work_dir/distill_ntu60/frequency_classifier_best.pth
+distilled_classifier_path: ./work_dir/distill/frequency_classifier_best.pth
 ```
 
 Then train:
